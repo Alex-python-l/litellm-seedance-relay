@@ -144,7 +144,7 @@ async def create_enterprise(
             """
             INSERT INTO "LiteLLM_PublicRelayAccount"
                 ("account_id", "user_id", "normalized_email", "company_name", "notes", "created_at", "updated_at")
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
+            VALUES ($1, $2, $3, $4, $5, $6::TIMESTAMP, $6::TIMESTAMP)
             """,
             account_id,
             user_id,
@@ -156,7 +156,7 @@ async def create_enterprise(
         await tx.execute_raw(
             """
             INSERT INTO "LiteLLM_PublicRelayWallet" ("wallet_id", "account_id", "created_at", "updated_at")
-            VALUES ($1, $2, $3, $3)
+            VALUES ($1, $2, $3::TIMESTAMP, $3::TIMESTAMP)
             """,
             wallet_id,
             account_id,
@@ -166,7 +166,7 @@ async def create_enterprise(
             await tx.execute_raw(
                 """
                 UPDATE "LiteLLM_PublicRelayWallet"
-                SET "available_micros" = $1, "version" = 1, "updated_at" = $2
+                SET "available_micros" = $1, "version" = 1, "updated_at" = $2::TIMESTAMP
                 WHERE "wallet_id" = $3
                 """,
                 initial_credit_micros,
@@ -198,7 +198,7 @@ async def create_enterprise(
             """
             INSERT INTO "LiteLLM_PublicRelayAuthToken"
                 ("auth_token_id", "token_hash", "account_id", "purpose", "expires_at")
-            VALUES ($1, $2, $3, 'ACTIVATION', $4)
+            VALUES ($1, $2, $3, 'ACTIVATION', $4::TIMESTAMP)
             """,
             str(uuid.uuid4()),
             activation_token_hash,
@@ -247,7 +247,7 @@ async def create_auth_token(
             """
             INSERT INTO "LiteLLM_PublicRelayAuthToken"
                 ("auth_token_id", "token_hash", "account_id", "purpose", "expires_at")
-            VALUES ($1, $2, $3, $4::"PublicRelayAuthTokenPurpose", $5)
+            VALUES ($1, $2, $3, $4::"PublicRelayAuthTokenPurpose", $5::TIMESTAMP)
             RETURNING *
             """,
             auth_token_id,
@@ -295,7 +295,7 @@ async def activate_account(
         await tx.execute_raw(
             """
             UPDATE "LiteLLM_PublicRelayAccount"
-            SET "status" = 'ACTIVE', "activated_at" = $1, "updated_at" = $1
+            SET "status" = 'ACTIVE', "activated_at" = $1::TIMESTAMP, "updated_at" = $1::TIMESTAMP
             WHERE "account_id" = $2
             """,
             now,
@@ -304,7 +304,7 @@ async def activate_account(
         await tx.execute_raw(
             """
             UPDATE "LiteLLM_PublicRelayAuthToken"
-            SET "consumed_at" = $1
+            SET "consumed_at" = $1::TIMESTAMP
             WHERE "auth_token_id" = $2
             """,
             now,
@@ -456,7 +456,7 @@ async def publish_price(
                     "created_at",
                     "created_by"
                 )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::TIMESTAMP, $11::TIMESTAMP, $12)
             RETURNING *
             """,
             price_id,
@@ -564,10 +564,25 @@ async def _insert_api_key(
         separators=(",", ":"),
     )
     group_rows = await tx.query_raw(
-        'SELECT "access_group_id" FROM "LiteLLM_AccessGroupTable" WHERE "access_group_name" = $1',
+        """
+        SELECT "access_group_id", "access_model_names"
+        FROM "LiteLLM_AccessGroupTable"
+        WHERE "access_group_name" = $1
+        """,
         PUBLIC_ACCESS_GROUP_NAME,
     )
     group_id = _single_string(group_rows, "access_group_id")
+    if not isinstance(group_rows, list) or not group_rows:
+        raise LookupError("Public relay access group not found")
+    group = _required_mapping(cast(list[object], group_rows)[0])
+    allowed_models = TypeAdapter(list[str]).validate_python(group.get("access_model_names"))
+    if not allowed_models:
+        raise LookupError("No public relay models are enabled")
+    await tx.execute_raw(
+        'UPDATE "LiteLLM_UserTable" SET models = $1::TEXT[] WHERE "user_id" = $2',
+        allowed_models,
+        user_id,
+    )
     await tx.execute_raw(
         """
         INSERT INTO "LiteLLM_VerificationToken"
@@ -589,15 +604,15 @@ async def _insert_api_key(
             $1,
             $2,
             $3,
-            ARRAY['no-default-models']::TEXT[],
+            $8::TEXT[],
             $4,
             $5::JSONB,
             $6::TEXT[],
             ARRAY[$7]::TEXT[],
             $4,
             $4,
-            $8,
-            $8
+            $9::TIMESTAMP,
+            $9::TIMESTAMP
         )
         """,
         key_id,
@@ -607,6 +622,7 @@ async def _insert_api_key(
         metadata,
         [PUBLIC_ALLOWED_ROUTE_GROUP],
         group_id,
+        allowed_models,
         now,
     )
 
@@ -917,7 +933,7 @@ async def reserve_request(
                     "max_output_tokens",
                     "expires_at"
                 )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::TIMESTAMP)
             RETURNING *
             """,
             reservation_id,
@@ -1274,7 +1290,7 @@ async def store_request_content(
                 "ciphertext_b64",
                 "expires_at"
             )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::TIMESTAMP)
         ON CONFLICT ("request_id") DO NOTHING
         """,
         str(uuid.uuid4()),
@@ -1479,6 +1495,23 @@ async def _sync_public_access_group(transaction: TransactionProtocol) -> None:
         """,
         models,
         group_id,
+    )
+    await transaction.execute_raw(
+        """
+        UPDATE "LiteLLM_UserTable" AS users
+        SET models = $1::TEXT[]
+        FROM "LiteLLM_PublicRelayAccount" AS accounts
+        WHERE accounts.user_id = users.user_id
+        """,
+        models,
+    )
+    await transaction.execute_raw(
+        """
+        UPDATE "LiteLLM_VerificationToken"
+        SET models = $1::TEXT[], "updated_at" = CURRENT_TIMESTAMP
+        WHERE COALESCE((metadata->>'public_relay')::BOOLEAN, false) = true
+        """,
+        models,
     )
 
 

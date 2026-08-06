@@ -37,7 +37,7 @@ class RelayStore:
             """
             INSERT INTO "LiteLLM_PublicRelayRateLimit"
                 ("rate_limit_id", "key_hash", "window_started_at", "window_seconds", "count", "expires_at")
-            VALUES ($1, $2, $3, $4, 1, $5)
+            VALUES ($1, $2, $3::TIMESTAMP, $4, 1, $5::TIMESTAMP)
             ON CONFLICT ("key_hash", "window_started_at", "window_seconds")
             DO UPDATE SET "count" = "LiteLLM_PublicRelayRateLimit"."count" + 1
             RETURNING "count"
@@ -69,7 +69,7 @@ class RelayStore:
                     "csrf_token",
                     "expires_at"
                 )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::TIMESTAMP)
             """,
             str(uuid.uuid4()),
             hash_session_token(self.settings.session_secret, token),

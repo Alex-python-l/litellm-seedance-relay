@@ -20,10 +20,10 @@ def test_invalid_email_is_rejected(email: str) -> None:
         normalize_email(email)
 
 
-def test_argon2_password_round_trip() -> None:
+def test_scrypt_password_round_trip() -> None:
     password_hash = hash_password("A-secure-password-123")
 
-    assert password_hash.startswith("$argon2")
+    assert password_hash.startswith("scrypt:")
     assert verify_password("A-secure-password-123", password_hash)
     assert not verify_password("A-secure-password-124", password_hash)
 

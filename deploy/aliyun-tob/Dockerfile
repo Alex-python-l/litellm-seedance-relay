@@ -7,9 +7,6 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PRISMA_CLI_QUERY_ENGINE_TYPE=binary \
     PRISMA_OFFLINE_MODE=true
 
-RUN /app/.venv/bin/python -m ensurepip && \
-    /app/.venv/bin/python -m pip install --no-cache-dir argon2-cffi==25.1.0
-
 COPY litellm /app/.venv/lib/python3.13/site-packages/litellm
 COPY litellm-proxy-extras/litellm_proxy_extras/schema.prisma /app/.venv/lib/python3.13/site-packages/litellm_proxy_extras/schema.prisma
 COPY litellm-proxy-extras/litellm_proxy_extras/migrations/20260724000000_add_public_relay_v1 /app/.venv/lib/python3.13/site-packages/litellm_proxy_extras/migrations/20260724000000_add_public_relay_v1

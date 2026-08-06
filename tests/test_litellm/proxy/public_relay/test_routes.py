@@ -1,5 +1,6 @@
 from fastapi.routing import APIRoute
 
+from litellm.proxy.auth.route_checks import RouteChecks
 from litellm.proxy.public_relay.admin_endpoints import router as admin_router
 from litellm.proxy.public_relay.auth_endpoints import router as auth_router
 from litellm.proxy.public_relay.portal_endpoints import router as portal_router
@@ -33,3 +34,8 @@ def test_consumer_billing_and_registration_routes_are_absent() -> None:
     assert "/v1/public/payments/stripe/webhook" not in paths
     assert "/v1/portal/billing/checkout" not in paths
     assert "/v1/admin/relay/payments/{payment_id}/refund" not in paths
+
+
+def test_seedance_routes_are_classified_as_data_plane_routes() -> None:
+    assert RouteChecks.is_llm_api_route("/api/v1/open/contents/generations/tasks")
+    assert RouteChecks.is_llm_api_route("/api/v1/open/contents/generations/tasks/provider-task-1")
