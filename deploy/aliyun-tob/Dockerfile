@@ -13,6 +13,7 @@ COPY litellm-proxy-extras/litellm_proxy_extras/migrations/20260724000000_add_pub
 COPY litellm-proxy-extras/litellm_proxy_extras/migrations/20260806000000_add_seedance_public_relay /app/.venv/lib/python3.13/site-packages/litellm_proxy_extras/migrations/20260806000000_add_seedance_public_relay
 COPY ui/litellm-dashboard/out /app/.venv/lib/python3.13/site-packages/litellm/proxy/_experimental/out
 COPY schema.prisma /app/schema.prisma
+RUN prisma generate --schema=/app/schema.prisma
 COPY litellm-proxy-extras /app/litellm-proxy-extras
 
 EXPOSE 4000/tcp

@@ -69,6 +69,28 @@ async def test_insert_data_strips_null_budget_limits(prisma_client: PrismaClient
 
 
 @pytest.mark.asyncio
+async def test_insert_data_strips_null_relation_ids(prisma_client: PrismaClient) -> None:
+    prisma_client.db.litellm_verificationtoken.upsert = AsyncMock(return_value=None)
+    await prisma_client.insert_data(
+        data={
+            "token": "sk-1",
+            "budget_id": None,
+            "organization_id": None,
+            "object_permission_id": None,
+            "project_id": None,
+        },
+        table_name="key",
+    )
+    create_payload = prisma_client.db.litellm_verificationtoken.upsert.await_args.kwargs[
+        "data"
+    ]["create"]
+    assert "budget_id" not in create_payload
+    assert "organization_id" not in create_payload
+    assert "object_permission_id" not in create_payload
+    assert "project_id" not in create_payload
+
+
+@pytest.mark.asyncio
 async def test_insert_data_team_serializes_members(prisma_client: PrismaClient) -> None:
     prisma_client.db.litellm_teamtable.upsert = AsyncMock(
         return_value=SimpleNamespace(team_id="t1", team_alias="x", spend=0)

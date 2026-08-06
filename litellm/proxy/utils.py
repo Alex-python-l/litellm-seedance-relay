@@ -3639,6 +3639,17 @@ class PrismaClient:
                 # Strip them so the DB stores NULL via the column's nullable constraint.
                 if db_data.get("budget_limits") is None:
                     db_data.pop("budget_limits", None)
+                # Prisma's checked create input rejects null relation scalars during
+                # upsert. Omitting them preserves the database NULL defaults while
+                # still allowing callers to supply a real relation identifier.
+                for relation_id in (
+                    "budget_id",
+                    "organization_id",
+                    "object_permission_id",
+                    "project_id",
+                ):
+                    if db_data.get(relation_id) is None:
+                        db_data.pop(relation_id, None)
                 print_verbose("PrismaClient: Before upsert into litellm_verificationtoken")
                 new_verification_token = await VerificationTokenRepository(self).table.upsert(  # type: ignore
                     where={
