@@ -93,8 +93,11 @@ def parse_status_response(result: SeedanceSuccess) -> SeedanceTaskStatus | Seeda
 
 
 def _error_message(payload: dict[str, object]) -> str:
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return message
     error = payload.get("error")
     if not isinstance(error, dict):
         return "Seedance provider request failed"
     message = error.get("message")
-    return message if isinstance(message, str) else "Seedance provider request failed"
+    return message if isinstance(message, str) and message.strip() else "Seedance provider request failed"

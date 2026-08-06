@@ -5,8 +5,15 @@ import pytest
 from pydantic import ValidationError
 
 from litellm.proxy.public_relay.db_types import VideoTaskRow
-from litellm.proxy.public_relay.seedance_client import SeedanceClient, SeedanceSuccess
-from litellm.proxy.public_relay.seedance_service import poll_seedance_task
+from litellm.proxy.public_relay.seedance_client import SeedanceClient, SeedanceFailure, SeedanceSuccess
+from litellm.proxy.public_relay.seedance_service import (
+    SeedanceRelayError,
+    _canonical_payload,
+    _digest,
+    create_seedance_task,
+    get_and_refresh_seedance_task,
+    poll_seedance_task,
+)
 from litellm.proxy.public_relay.seedance_types import (
     SEEDANCE_MODEL,
     SeedanceContentItem,
@@ -92,6 +99,85 @@ async def test_client_injects_provider_auth_and_idempotency() -> None:
 
 
 @pytest.mark.asyncio
+async def test_client_preserves_top_level_provider_error_message() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"message": "provider key is invalid"})
+
+    settings = SeedanceSettings(
+        api_base_url="https://provider.example.test/api/v1",
+        api_key="provider-secret",
+        model=SEEDANCE_MODEL,
+        upstream_micros_per_million=0,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await SeedanceClient(client, settings).create_task(_payload(), "relay-idempotency")
+
+    assert isinstance(result, SeedanceFailure)
+    assert result.status_code == 401
+    assert result.message == "provider key is invalid"
+
+
+@pytest.mark.asyncio
+async def test_repeated_idempotency_key_returns_stored_task(monkeypatch) -> None:
+    existing = _task().model_copy(
+        update={
+            "request_hash": _digest(_canonical_payload(_payload())),
+            "provider_response": {"id": "provider-1", "task_id": "internal-1"},
+        }
+    )
+
+    async def get_existing(_prisma, account_id, _idempotency_hash):
+        assert account_id == "account-1"
+        return existing
+
+    monkeypatch.setattr(
+        "litellm.proxy.public_relay.seedance_service.relay_identity", lambda _user: ("account-1", "key-1")
+    )
+    monkeypatch.setattr("litellm.proxy.public_relay.seedance_service.get_video_task_by_idempotency", get_existing)
+
+    created = await create_seedance_task(object(), object(), _payload(), "request-1", object())
+
+    assert created.task == existing
+    assert created.response.id == "provider-1"
+
+
+@pytest.mark.asyncio
+async def test_changed_payload_reusing_idempotency_key_is_rejected(monkeypatch) -> None:
+    async def get_existing(_prisma, _account_id, _idempotency_hash):
+        return _task()
+
+    monkeypatch.setattr(
+        "litellm.proxy.public_relay.seedance_service.relay_identity", lambda _user: ("account-1", "key-1")
+    )
+    monkeypatch.setattr("litellm.proxy.public_relay.seedance_service.get_video_task_by_idempotency", get_existing)
+
+    with pytest.raises(SeedanceRelayError) as exc_info:
+        await create_seedance_task(object(), object(), _payload(), "request-1", object())
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_task_lookup_is_scoped_to_authenticated_account(monkeypatch) -> None:
+    looked_up: list[tuple[str, str]] = []
+
+    async def get_task(_prisma, account_id, task_id):
+        looked_up.append((account_id, task_id))
+        return None
+
+    monkeypatch.setattr(
+        "litellm.proxy.public_relay.seedance_service.relay_identity", lambda _user: ("account-2", "key-2")
+    )
+    monkeypatch.setattr("litellm.proxy.public_relay.seedance_service.get_video_task", get_task)
+
+    with pytest.raises(SeedanceRelayError) as exc_info:
+        await get_and_refresh_seedance_task(object(), object(), "provider-1", object())
+
+    assert looked_up == [("account-2", "provider-1")]
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_successful_task_settles_actual_tokens(monkeypatch) -> None:
     settled: list[tuple[str, int, int]] = []
     updated: list[tuple[str, int | None, bool]] = []
@@ -127,3 +213,38 @@ async def test_successful_task_settles_actual_tokens(monkeypatch) -> None:
     assert response["status"] == "succeeded"
     assert settled == [("request-1", 108_900, 217_800)]
     assert updated == [("video-1", 108_900, True)]
+
+
+@pytest.mark.asyncio
+async def test_failed_task_releases_reserved_balance(monkeypatch) -> None:
+    released: list[str] = []
+    updated: list[tuple[str, str, bool]] = []
+
+    async def release(_prisma, request_id):
+        released.append(request_id)
+
+    async def update(_prisma, video_task_id, status, _actual_tokens, _charged, _cost, payload, _error, terminal):
+        updated.append((video_task_id, status, terminal))
+        return _task().model_copy(update={"status": status, "provider_response": payload})
+
+    monkeypatch.setenv("SEEDANCE_API_KEY", "provider-secret")
+    monkeypatch.setattr("litellm.proxy.public_relay.seedance_service.release_request", release)
+    monkeypatch.setattr("litellm.proxy.public_relay.seedance_service.update_video_task", update)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "provider-1",
+                "task_id": "internal-1",
+                "status": "failed",
+                "error": {"message": "generation failed"},
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        response = await poll_seedance_task(object(), _task(), client)
+
+    assert response["status"] == "failed"
+    assert released == ["request-1"]
+    assert updated == [("video-1", "failed", True)]
