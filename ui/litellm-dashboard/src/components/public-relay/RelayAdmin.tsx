@@ -222,7 +222,7 @@ export default function RelayAdmin() {
       </div>
 
       {error && <p className="mt-6 rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</p>}
-      {issuedLink && <IssuedLink key={issuedLink} value={issuedLink} />}
+      {issuedLink && <IssuedLink key={issuedLink} value={issuedLink} onClose={() => setIssuedLink("")} />}
 
       <Panel title="Seedance 2.0 上游" className="mt-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -296,10 +296,20 @@ export default function RelayAdmin() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {account.status === "INVITED" && (
-                  <Action onClick={() => void issueLink(account, "activation-link")}>激活链接</Action>
+                  <Action
+                    onClick={() => void issueLink(account, "activation-link")}
+                    disabled={busy === `link-${account.account_id}`}
+                  >
+                    {busy === `link-${account.account_id}` ? "生成中…" : "激活链接"}
+                  </Action>
                 )}
                 {account.status === "ACTIVE" && (
-                  <Action onClick={() => void issueLink(account, "password-reset-link")}>重置密码</Action>
+                  <Action
+                    onClick={() => void issueLink(account, "password-reset-link")}
+                    disabled={busy === `link-${account.account_id}`}
+                  >
+                    {busy === `link-${account.account_id}` ? "生成中…" : "重置密码"}
+                  </Action>
                 )}
                 <Action onClick={() => setAdjusting(adjusting?.account_id === account.account_id ? null : account)}>
                   调整额度
@@ -369,7 +379,7 @@ export default function RelayAdmin() {
   );
 }
 
-function IssuedLink({ value }: { value: string }) {
+function IssuedLink({ value, onClose }: { value: string; onClose: () => void }) {
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
 
   async function copy() {
@@ -377,11 +387,24 @@ function IssuedLink({ value }: { value: string }) {
   }
 
   return (
-    <div className="mt-6 rounded-2xl bg-blue-50 p-5">
-      <p className="text-sm font-medium">一次性账户链接，请通过安全渠道发送</p>
-      <code className="mt-3 block break-all text-xs">{value}</code>
-      <Action onClick={() => void copy()}>{copyButtonLabel(copyStatus, "复制链接")}</Action>
-      {copyStatus === "failed" && <p className="mt-2 text-xs text-red-700">请手动选择并复制上方链接。</p>}
+    <div className="fixed inset-0 z-[1000] grid place-items-center bg-black/45 p-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="issued-link-title"
+        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl"
+      >
+        <p id="issued-link-title" className="text-lg font-semibold">
+          一次性账户链接已生成
+        </p>
+        <p className="mt-2 text-sm text-gray-600">请立即复制，并通过安全渠道发送给对应账户。</p>
+        <code className="mt-4 block max-h-32 overflow-auto break-all rounded-xl bg-blue-50 p-4 text-xs">{value}</code>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Action onClick={() => void copy()}>{copyButtonLabel(copyStatus, "复制链接")}</Action>
+          <Action onClick={onClose}>关闭</Action>
+        </div>
+        {copyStatus === "failed" && <p className="mt-2 text-xs text-red-700">请手动选择并复制上方链接。</p>}
+      </section>
     </div>
   );
 }
