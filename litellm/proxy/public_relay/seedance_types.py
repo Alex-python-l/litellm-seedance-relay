@@ -65,7 +65,6 @@ class SeedanceTaskCreateRequest(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2_147_483_647)
     return_last_frame: bool = False
     tools: tuple[SeedanceTool, ...] = ()
-    service_tier: Literal["default", "flex"] = "default"
     callback_url: HttpUrl | None = None
     execution_expires_after: int = Field(default=172_800, ge=3_600, le=259_200)
     safety_identifier: str | None = Field(default=None, max_length=64)

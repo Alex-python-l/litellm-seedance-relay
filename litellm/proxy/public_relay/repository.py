@@ -1249,12 +1249,13 @@ async def list_request_logs(
             c."output_tokens",
             c."charged_micros",
             c."upstream_cost_micros",
-            s."status",
+            COALESCE(s."status", v."status") AS "status",
             s."request_duration_ms",
             c."created_at"
         FROM "LiteLLM_PublicRelayRequestCharge" c
         JOIN "LiteLLM_PublicRelayModelPrice" p ON p."price_id" = c."price_id"
         LEFT JOIN "LiteLLM_SpendLogs" s ON s."request_id" = c."request_id"
+        LEFT JOIN "LiteLLM_PublicRelayVideoTask" v ON v."request_id" = c."request_id"
         WHERE c."account_id" = $1
           AND c."created_at" >= CURRENT_TIMESTAMP - INTERVAL '7 days'
           AND ($2::TIMESTAMP IS NULL OR c."created_at" < $2)
