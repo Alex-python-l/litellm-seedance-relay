@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { copyButtonLabel, copyTextStatus, type CopyStatus } from "@/lib/clipboard";
 import { ApiKey, Money, relayFetch } from "@/lib/http/publicRelay";
 import { migratedHref } from "@/utils/migratedPages";
 import { usePortal } from "./PortalContext";
@@ -113,6 +114,7 @@ function Keys() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [alias, setAlias] = useState("");
   const [newKey, setNewKey] = useState("");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const [error, setError] = useState("");
   const load = useCallback(() => {
     relayFetch<{ data: ApiKey[] }>("/v1/portal/keys")
@@ -129,6 +131,7 @@ function Keys() {
         csrfToken,
       );
       setNewKey(data.key ?? "");
+      setCopyStatus("idle");
       setAlias("");
       load();
     } catch (requestError) {
@@ -138,6 +141,9 @@ function Keys() {
   async function remove(keyId: string) {
     await relayFetch(`/v1/portal/keys/${encodeURIComponent(keyId)}`, { method: "DELETE" }, csrfToken);
     load();
+  }
+  async function copyNewKey() {
+    setCopyStatus(await copyTextStatus(newKey));
   }
   return (
     <div className="grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
@@ -164,11 +170,12 @@ function Keys() {
             <code className="mt-3 block overflow-x-auto text-sm">{newKey}</code>
             <button
               type="button"
-              onClick={() => void navigator.clipboard.writeText(newKey)}
+              onClick={() => void copyNewKey()}
               className="mt-4 rounded-full bg-black px-4 py-2 text-xs text-white"
             >
-              复制
+              {copyButtonLabel(copyStatus, "复制")}
             </button>
+            {copyStatus === "failed" && <p className="mt-3 text-xs text-red-700">请手动选择并复制上方 Key。</p>}
           </Card>
         )}
         {keys.map((key) => (

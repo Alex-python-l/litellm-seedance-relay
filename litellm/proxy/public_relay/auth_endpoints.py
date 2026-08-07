@@ -44,13 +44,17 @@ router = APIRouter(prefix="/v1/public/auth", tags=["public relay authentication"
 async def activate(payload: ActivateRequest, response: Response) -> SessionResponse:
     value = settings()
     try:
+        password_hash = hash_password(payload.password)
+    except ValueError as exc:
+        raise _password_validation_failure(exc) from exc
+    try:
         created = await activate_account(
             database(),
             hash_auth_token(value.session_secret, payload.token),
-            hash_password(payload.password),
+            password_hash,
         )
     except (PermissionError, ValueError) as exc:
-        raise _authentication_failure(status.HTTP_400_BAD_REQUEST) from exc
+        raise _link_failure("Activation") from exc
     credentials = new_session_credentials()
     await relay_store(value).create_session(
         credentials.token,
@@ -93,13 +97,17 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
 async def password_reset(payload: PasswordResetRequest) -> MessageResponse:
     value = settings()
     try:
+        password_hash = hash_password(payload.password)
+    except ValueError as exc:
+        raise _password_validation_failure(exc) from exc
+    try:
         await reset_password_with_token(
             database(),
             hash_auth_token(value.session_secret, payload.token),
-            hash_password(payload.password),
+            password_hash,
         )
     except (PermissionError, ValueError) as exc:
-        raise _authentication_failure(status.HTTP_400_BAD_REQUEST) from exc
+        raise _link_failure("Password reset") from exc
     return MessageResponse(message="Password updated")
 
 
@@ -138,6 +146,25 @@ def _authentication_failure(status_code: int = status.HTTP_401_UNAUTHORIZED) -> 
     return HTTPException(
         status_code=status_code,
         detail={"error": {"message": "Unable to authenticate", "type": "authentication_error"}},
+    )
+
+
+def _password_validation_failure(exc: ValueError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={"error": {"message": str(exc), "type": "validation_error"}},
+    )
+
+
+def _link_failure(kind: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": {
+                "message": f"{kind} link is invalid, expired, or already used",
+                "type": "authentication_error",
+            }
+        },
     )
 
 
