@@ -1379,7 +1379,6 @@ async def adjust_wallet(
                     "amount_micros",
                     "available_after_micros",
                     "reserved_after_micros",
-                    "debt_after_micros",
                     "idempotency_key",
                     "metadata"
                 )
