@@ -77,10 +77,12 @@ def test_content_role_must_match_media_type() -> None:
 @pytest.mark.asyncio
 async def test_client_injects_provider_auth_and_idempotency() -> None:
     seen_headers: httpx.Headers | None = None
+    seen_body: bytes | None = None
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal seen_headers
+        nonlocal seen_body, seen_headers
         seen_headers = request.headers
+        seen_body = request.content
         return httpx.Response(200, json={"id": "provider-1", "task_id": "internal-1"})
 
     settings = SeedanceSettings(
@@ -96,6 +98,8 @@ async def test_client_injects_provider_auth_and_idempotency() -> None:
     assert seen_headers is not None
     assert seen_headers["authorization"] == "Bearer provider-secret"
     assert seen_headers["idempotency-key"] == "relay-idempotency"
+    assert seen_body is not None
+    assert b"service_tier" not in seen_body
 
 
 @pytest.mark.asyncio

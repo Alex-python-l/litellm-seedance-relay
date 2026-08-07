@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useWorker } from "@/hooks/useWorker";
 import { migratedHref } from "@/utils/migratedPages";
+import { useAuth } from "@/contexts/AuthContext";
 
 function LoginPageContent() {
   const [username, setUsername] = useState("");
@@ -20,6 +21,7 @@ function LoginPageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const { data: uiConfig, isLoading: isConfigLoading } = useUIConfig();
   const loginMutation = useLogin();
+  const { setToken } = useAuth();
   const router = useRouter();
   const { workers, selectWorker } = useWorker();
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
@@ -56,7 +58,8 @@ function LoginPageContent() {
       const rawWorkerUrl = localStorage.getItem("litellm_worker_url");
       // Validate the stored worker URL: only allow http(s) URLs.
       const workerUrl = rawWorkerUrl && /^https?:\/\/.+/.test(rawWorkerUrl) ? rawWorkerUrl : null;
-      exchangeLoginCode(ssoCode, workerUrl).then(() => {
+      exchangeLoginCode(ssoCode, workerUrl).then((token) => {
+        setToken(token);
         params.delete("code");
         const cleanSearch = params.toString();
         window.history.replaceState(null, "", window.location.pathname + (cleanSearch ? `?${cleanSearch}` : ""));
@@ -97,7 +100,7 @@ function LoginPageContent() {
     }
 
     setIsLoading(false);
-  }, [isConfigLoading, router, uiConfig]);
+  }, [isConfigLoading, router, setToken, uiConfig]);
 
   const handleSubmit = () => {
     // If a worker is selected, point proxyBaseUrl at it before login
@@ -110,6 +113,9 @@ function LoginPageContent() {
       { username, password, useV3: !!selectedWorker },
       {
         onSuccess: (data) => {
+          if (data.token) {
+            setToken(data.token);
+          }
           // Update the worker context with the selected worker
           if (selectedWorker) {
             selectWorker(selectedWorker.worker_id);

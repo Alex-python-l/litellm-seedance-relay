@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import LoginPage from "./LoginPage";
 
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
+const mockMutate = vi.fn();
+const mockSetToken = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: vi.fn(() => ({
@@ -36,9 +38,15 @@ vi.mock("@/components/networking", async (importOriginal) => {
 
 vi.mock("@/app/(dashboard)/hooks/login/useLogin", () => ({
   useLogin: vi.fn(() => ({
-    mutate: vi.fn(),
+    mutate: mockMutate,
     isPending: false,
     error: null,
+  })),
+}));
+
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: vi.fn(() => ({
+    setToken: mockSetToken,
   })),
 }));
 
@@ -96,6 +104,41 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
     });
+  });
+
+  it("updates the live auth context before navigating after password login", async () => {
+    (useUIConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: {
+        auto_redirect_to_sso: false,
+        server_root_path: "/",
+        proxy_base_url: null,
+        sso_configured: false,
+      },
+      isLoading: false,
+    });
+    (getCookieFromDocument as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+    const queryClient = createQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <LoginPage />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "relay-admin" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => expect(mockMutate).toHaveBeenCalledOnce());
+    const [, options] = mockMutate.mock.calls[0];
+    options.onSuccess({ redirect_url: "/ui/?login=success", token: "fresh-jwt" });
+
+    expect(mockSetToken).toHaveBeenCalledWith("fresh-jwt");
+    expect(mockPush).toHaveBeenCalledWith("/ui/admin");
   });
 
   it("should call router.replace to dashboard when jwt is valid", async () => {
