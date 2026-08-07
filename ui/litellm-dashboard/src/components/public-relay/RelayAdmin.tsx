@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { copyButtonLabel, copyTextStatus, type CopyStatus } from "@/lib/clipboard";
 import { Money, relayFetch } from "@/lib/http/publicRelay";
 
 type Account = {
@@ -221,13 +222,7 @@ export default function RelayAdmin() {
       </div>
 
       {error && <p className="mt-6 rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</p>}
-      {issuedLink && (
-        <div className="mt-6 rounded-2xl bg-blue-50 p-5">
-          <p className="text-sm font-medium">一次性账户链接，请通过安全渠道发送</p>
-          <code className="mt-3 block break-all text-xs">{issuedLink}</code>
-          <Action onClick={() => void navigator.clipboard.writeText(issuedLink)}>复制链接</Action>
-        </div>
-      )}
+      {issuedLink && <IssuedLink key={issuedLink} value={issuedLink} />}
 
       <Panel title="Seedance 2.0 上游" className="mt-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -370,6 +365,23 @@ export default function RelayAdmin() {
           </table>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function IssuedLink({ value }: { value: string }) {
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+
+  async function copy() {
+    setCopyStatus(await copyTextStatus(value));
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl bg-blue-50 p-5">
+      <p className="text-sm font-medium">一次性账户链接，请通过安全渠道发送</p>
+      <code className="mt-3 block break-all text-xs">{value}</code>
+      <Action onClick={() => void copy()}>{copyButtonLabel(copyStatus, "复制链接")}</Action>
+      {copyStatus === "failed" && <p className="mt-2 text-xs text-red-700">请手动选择并复制上方链接。</p>}
     </div>
   );
 }

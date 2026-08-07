@@ -4,7 +4,9 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { copyButtonLabel, copyTextStatus, type CopyStatus } from "@/lib/clipboard";
 import { relayFetch, SessionResult } from "@/lib/http/publicRelay";
+import { newPasswordHint, validateNewPassword } from "@/lib/publicAuthValidation";
 import { migratedHref } from "@/utils/migratedPages";
 
 type Mode = "login" | "activate" | "reset";
@@ -20,17 +22,29 @@ export default function PublicAuthForm({ mode }: { mode: Mode }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [createdKey, setCreatedKey] = useState("");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const buttonLabel = mode === "login" ? "登录" : "确认";
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError("");
+    const token = mode === "login" ? "" : new URLSearchParams(window.location.search).get("token") ?? "";
+    if (mode !== "login") {
+      if (!token) {
+        setError("链接无效，请联系管理员重新生成激活或密码重置链接。");
+        return;
+      }
+      const passwordError = validateNewPassword(password);
+      if (passwordError) {
+        setError(passwordError);
+        return;
+      }
+    }
+    setBusy(true);
     try {
       const endpoint = mode === "reset" ? "password-reset" : mode;
-      const token = new URLSearchParams(window.location.search).get("token") ?? "";
       const payload = mode === "login" ? { email, password } : { token, password };
       const { data } = await relayFetch<SessionResult | { message: string }>(`/v1/public/auth/${endpoint}`, {
         method: "POST",
@@ -48,6 +62,10 @@ export default function PublicAuthForm({ mode }: { mode: Mode }) {
     }
   }
 
+  async function copyCreatedKey() {
+    setCopyStatus(await copyTextStatus(createdKey));
+  }
+
   if (createdKey) {
     return (
       <main className="mx-auto grid min-h-[72vh] max-w-2xl place-items-center px-5 py-16">
@@ -60,11 +78,12 @@ export default function PublicAuthForm({ mode }: { mode: Mode }) {
           </code>
           <button
             type="button"
-            onClick={() => navigator.clipboard.writeText(createdKey)}
+            onClick={() => void copyCreatedKey()}
             className="mt-4 rounded-full border border-black/20 px-5 py-2 text-sm"
           >
-            复制 Key
+            {copyButtonLabel(copyStatus, "复制 Key")}
           </button>
+          {copyStatus === "failed" && <p className="mt-3 text-sm text-red-700">请手动选择并复制上方 Key。</p>}
           <Link href={migratedHref("portal")} className="ml-3 rounded-full bg-[#ff4f2e] px-5 py-2 text-sm text-white">
             进入企业门户
           </Link>
@@ -108,6 +127,7 @@ export default function PublicAuthForm({ mode }: { mode: Mode }) {
             className="mt-2 w-full rounded-xl border-black/15"
           />
         </label>
+        {mode !== "login" && <p className="mt-2 text-xs leading-5 text-black/50">{newPasswordHint}</p>}
         {error && <p className="mt-4 text-sm text-red-700">{error}</p>}
         <button
           type="submit"
