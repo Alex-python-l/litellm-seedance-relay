@@ -27,3 +27,6 @@ Optional settings:
 The relay requires PostgreSQL and runs with one Uvicorn worker. Sessions, one-time activation and reset tokens, and
 rate limits are stored in PostgreSQL. API keys are restricted to models, chat completions, responses, and embeddings,
 and can only see models in the reserved `public-relay-models` access group.
+
+The complete Chinese test plan, including financial invariants, assertion patterns, boundary cases, database recovery,
+Seedance end-to-end coverage, and the future online-payment release gate, is in [TEST_PLAN.md](./TEST_PLAN.md).
